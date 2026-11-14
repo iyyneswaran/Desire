@@ -5,19 +5,16 @@ import { RotateCcw, X } from 'lucide-react'
 
 interface BrainLegendProps {
   selectedRegionId: string | null
-  hoveredRegionId: string | null
   onSelectRegion: (id: string | null) => void
   onResetCamera: () => void
 }
 
 export default function BrainLegend({
   selectedRegionId,
-  hoveredRegionId,
   onSelectRegion,
   onResetCamera,
 }: BrainLegendProps) {
   const activeRegion = brainRegions.find((r) => r.id === selectedRegionId)
-  const hoveredRegion = brainRegions.find((r) => r.id === hoveredRegionId)
 
   return (
     <div className="w-full space-y-4 pt-4 border-t border-white/10">
@@ -39,11 +36,6 @@ export default function BrainLegend({
           ) : (
             <span className="font-mono text-xs text-[#687368] italic">
               All 48,284 Neural Nodes Active
-            </span>
-          )}
-          {hoveredRegion && hoveredRegion.id !== selectedRegionId && (
-            <span className="font-mono text-[11px] text-[#78D957]/80 hidden md:inline-flex items-center gap-1 ml-1">
-              &bull; Hovering: {hoveredRegion.name.split('(')[0].trim()}
             </span>
           )}
         </div>
@@ -75,7 +67,6 @@ export default function BrainLegend({
       <div className="flex flex-wrap gap-1.5 pt-1">
         {brainRegions.map((region) => {
           const isSelected = selectedRegionId === region.id
-          const isHovered = hoveredRegionId === region.id
 
           return (
             <button
@@ -84,9 +75,7 @@ export default function BrainLegend({
               className={`font-mono text-[11px] px-2.5 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
                 isSelected
                   ? 'border-[#B9FF43] bg-[#172019] text-[#B9FF43] font-semibold shadow-[0_0_12px_-2px_rgba(185,255,67,0.35)]'
-                  : isHovered
-                  ? 'border-[#78D957]/50 bg-[#101810] text-[#78D957]'
-                  : 'border-white/10 bg-[#050705]/80 text-[#A0AAA0] hover:border-white/20 hover:text-[#F2F5EF]'
+                  : 'border-white/10 bg-[#050705]/80 text-[#A0AAA0] hover:border-[#78D957]/50 hover:bg-[#101810] hover:text-[#F2F5EF]'
               }`}
             >
               <span

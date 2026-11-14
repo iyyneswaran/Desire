@@ -8,9 +8,9 @@ import BrainLegend from './BrainLegend'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { AlertCircle } from 'lucide-react'
 
-// Camera default coordinates: 3/4 Perspective
-const DEFAULT_CAM_POS = new THREE.Vector3(2.7, 1.3, 3.2)
-const DEFAULT_LOOK_AT = new THREE.Vector3(0, 0.05, 0)
+// Camera default coordinates: Centered 3/4 Perspective with ample breathing room (matching Image 2)
+const DEFAULT_CAM_POS = new THREE.Vector3(4.2, 2.0, 5.0)
+const DEFAULT_LOOK_AT = new THREE.Vector3(0, 0.08, 0)
 
 // Map region ID string to integer index (1..10)
 const REGION_ID_TO_INDEX: Record<string, number> = {
@@ -41,13 +41,13 @@ const VERTEX_SHADER = `
   varying float v_alpha;
 
   void main() {
-    int rIdx = int(a_regionIndex);
-    bool isSelected = (rIdx == u_activeRegion && u_activeRegion > 0);
-    bool isHovered = (rIdx == u_hoveredRegion && u_hoveredRegion > 0);
+    int regIdx = int(a_regionIndex + 0.1);
+    bool isSelected = (u_activeRegion > 0 && regIdx == u_activeRegion);
+    bool isHovered = (u_hoveredRegion > 0 && regIdx == u_hoveredRegion);
     bool isDeepStructure = (a_isDeep > 0.5);
 
-    // Subtle natural neural breathing oscillation
-    float breath = sin(u_time * 1.5 + position.y * 3.0 + position.z * 2.0) * 0.006;
+    // Subtle gentle breathing movement
+    float breath = sin(u_time * 1.5 + position.y * 3.0 + position.z * 2.0) * 0.005;
     vec3 animatedPos = position + normal * breath;
 
     // Subtle travelling neural spark wave
@@ -63,26 +63,26 @@ const VERTEX_SHADER = `
     vec3 finalColor = mix(deepGreen, emerald, normal.y * 0.5 + 0.5);
 
     float alpha = 0.85;
-    float pointSize = 3.2;
+    float pointSize = 2.4;
 
     if (isSelected) {
       finalColor = mix(neonLime, whiteHot, spark * 0.35 + 0.25);
       alpha = 1.0;
-      pointSize = isDeepStructure ? 6.2 : 5.2;
+      pointSize = isDeepStructure ? 5.8 : 5.0;
     } else if (isHovered) {
       finalColor = hoverLime;
       alpha = 0.95;
-      pointSize = isDeepStructure ? 4.8 : 4.2;
+      pointSize = isDeepStructure ? 4.6 : 4.0;
     } else {
       // If a deep structure is active, dim the outer cortical particles for an internal X-ray cutaway
       if (u_deepCutaway > 0.01) {
         if (!isDeepStructure) {
           alpha = mix(0.75, 0.18, u_deepCutaway);
           finalColor = mix(finalColor, vec3(0.06, 0.16, 0.09), u_deepCutaway * 0.5);
-          pointSize = 2.4;
+          pointSize = 2.0;
         } else {
           alpha = 0.40;
-          pointSize = 3.0;
+          pointSize = 2.8;
         }
       }
     }
@@ -91,7 +91,7 @@ const VERTEX_SHADER = `
     v_alpha = alpha;
 
     vec4 mvPosition = modelViewMatrix * vec4(animatedPos, 1.0);
-    gl_PointSize = pointSize * u_pointScale * (2.8 / -mvPosition.z);
+    gl_PointSize = pointSize * u_pointScale * (4.2 / -mvPosition.z);
     gl_Position = projectionMatrix * mvPosition;
   }
 `
@@ -102,7 +102,7 @@ const FRAGMENT_SHADER = `
   varying float v_alpha;
 
   void main() {
-    // Make particles circular with soft luminous bloom edges
+    // Circular particles with soft luminous bloom edges
     float dist = length(gl_PointCoord - vec2(0.5));
     if (dist > 0.5) discard;
 
@@ -116,14 +116,12 @@ const FRAGMENT_SHADER = `
 
 interface ParticleBrainProps {
   selectedRegionId: string | null
-  hoveredRegionId: string | null
   onSelectRegion: (id: string | null) => void
-  onHoverRegion: (id: string | null) => void
+  onHoverRegion?: (id: string | null) => void
 }
 
 export default function ParticleBrain({
   selectedRegionId,
-  hoveredRegionId,
   onSelectRegion,
   onHoverRegion,
 }: ParticleBrainProps) {
@@ -134,13 +132,35 @@ export default function ParticleBrain({
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const isResettingCameraRef = useRef<boolean>(false)
 
+  // Floating tooltip DOM references for direct 0-render updates
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  const tooltipTitleRef = useRef<HTMLSpanElement | null>(null)
+  const tooltipDescRef = useRef<HTMLSpanElement | null>(null)
+
+  // Callbacks and state held in refs to prevent useEffect re-instantiations
+  const onSelectRegionRef = useRef(onSelectRegion)
+  const onHoverRegionRef = useRef(onHoverRegion)
+  const targetCutawayRef = useRef<number>(0.0)
+
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [activeTooltip, setActiveTooltip] = useState<{ name: string; desc: string; x: number; y: number } | null>(null)
 
   const reducedMotion = useReducedMotion()
+  const reducedMotionRef = useRef(reducedMotion)
 
-  // Reset Camera View Handler
+  useEffect(() => {
+    onSelectRegionRef.current = onSelectRegion
+  }, [onSelectRegion])
+
+  useEffect(() => {
+    onHoverRegionRef.current = onHoverRegion
+  }, [onHoverRegion])
+
+  useEffect(() => {
+    reducedMotionRef.current = reducedMotion
+  }, [reducedMotion])
+
+  // Reset Camera View Handler (smooth cubic-bezier interpolation)
   const handleResetCamera = useCallback(() => {
     if (!cameraRef.current || !controlsRef.current) return
     isResettingCameraRef.current = true
@@ -149,17 +169,18 @@ export default function ParticleBrain({
 
     const startPos = camera.position.clone()
     const targetPos = DEFAULT_CAM_POS.clone()
+    const startTarget = controls.target.clone()
+    const destTarget = DEFAULT_LOOK_AT.clone()
     const startTime = performance.now()
-    const duration = 750 // ms
+    const duration = 700 // ms
 
     const animateReset = (now: number) => {
       const elapsed = now - startTime
       const progress = Math.min(elapsed / duration, 1.0)
-      // Ease out cubic
       const ease = 1 - Math.pow(1 - progress, 3)
 
       camera.position.lerpVectors(startPos, targetPos, ease)
-      controls.target.lerp(DEFAULT_LOOK_AT, ease)
+      controls.target.lerpVectors(startTarget, destTarget, ease)
       controls.update()
 
       if (progress < 1.0) {
@@ -172,23 +193,19 @@ export default function ParticleBrain({
     requestAnimationFrame(animateReset)
   }, [])
 
-  // Sync selected and hovered regions with shader uniforms
+  // Sync selected region with shader uniform and cutaway target without re-rendering Three.js
   useEffect(() => {
     if (!materialRef.current) return
     const mat = materialRef.current
 
     const activeIdx = selectedRegionId ? REGION_ID_TO_INDEX[selectedRegionId] || 0 : 0
-    const hoverIdx = hoveredRegionId ? REGION_ID_TO_INDEX[hoveredRegionId] || 0 : 0
-
     mat.uniforms.u_activeRegion.value = activeIdx
-    mat.uniforms.u_hoveredRegion.value = hoverIdx
 
     const activeRegionObj = brainRegions.find((r) => r.id === selectedRegionId)
-    // Deep cutaway transition target
-    const targetCutaway = activeRegionObj && activeRegionObj.isDeep ? 1.0 : 0.0
-    mat.uniforms.u_deepCutaway.value = targetCutaway
-  }, [selectedRegionId, hoveredRegionId])
+    targetCutawayRef.current = activeRegionObj && activeRegionObj.isDeep ? 1.0 : 0.0
+  }, [selectedRegionId])
 
+  // Single Mount: Initialize Three.js Scene, Camera, Controls, and Particles ONCE
   useEffect(() => {
     const container = containerRef.current
     const canvas = canvasRef.current
@@ -196,10 +213,10 @@ export default function ParticleBrain({
 
     // 1. Scene, Camera, Renderer
     const scene = new THREE.Scene()
-    scene.background = null // Transparent so dark CSS background `#0A100B` shows through
+    scene.background = null
 
     const width = container.clientWidth
-    const height = container.clientHeight || 460
+    const height = container.clientHeight || 440
 
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100)
     camera.position.copy(DEFAULT_CAM_POS)
@@ -221,10 +238,10 @@ export default function ParticleBrain({
     controls.dampingFactor = 0.06
     controls.rotateSpeed = 0.8
     controls.zoomSpeed = 0.8
-    controls.minDistance = 2.2
-    controls.maxDistance = 6.8
-    controls.minPolarAngle = Math.PI * 0.2
-    controls.maxPolarAngle = Math.PI * 0.8
+    controls.minDistance = 3.0
+    controls.maxDistance = 9.5
+    controls.minPolarAngle = Math.PI * 0.15
+    controls.maxPolarAngle = Math.PI * 0.85
     controls.target.copy(DEFAULT_LOOK_AT)
     controlsRef.current = controls
 
@@ -234,7 +251,7 @@ export default function ParticleBrain({
       fragmentShader: FRAGMENT_SHADER,
       uniforms: {
         u_time: { value: 0 },
-        u_activeRegion: { value: selectedRegionId ? REGION_ID_TO_INDEX[selectedRegionId] || 0 : 0 },
+        u_activeRegion: { value: 1 }, // default to prefrontal (1)
         u_hoveredRegion: { value: 0 },
         u_deepCutaway: { value: 0.0 },
         u_pointScale: { value: Math.min(window.devicePixelRatio, 1.5) },
@@ -251,16 +268,17 @@ export default function ParticleBrain({
 
     const hitMeshMap = new Map<THREE.Mesh, string>()
     brainRegions.forEach((region) => {
-      // Sized appropriately based on anatomical extent
-      let radius = 0.32
-      if (region.id === 'prefrontal') radius = 0.58
-      else if (region.id === 'cerebellum') radius = 0.55
-      else if (region.id === 'striatum') radius = 0.45
-      else if (region.id === 'visual') radius = 0.42
+      let radius = 0.30
+      if (region.id === 'prefrontal') radius = 0.52
+      else if (region.id === 'cerebellum') radius = 0.48
+      else if (region.id === 'striatum') radius = 0.40
+      else if (region.id === 'visual') radius = 0.38
 
       const hitGeo = new THREE.SphereGeometry(radius, 12, 12)
       const hitMat = new THREE.MeshBasicMaterial({
-        visible: false, // Invisible interaction collider
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
       })
       const hitMesh = new THREE.Mesh(hitGeo, hitMat)
       hitMesh.position.set(region.center[0], region.center[1], region.center[2])
@@ -283,51 +301,68 @@ export default function ParticleBrain({
         const positions = new Float32Array(particleCount * 3)
         const normals = new Float32Array(particleCount * 3)
         const regionIndices = new Float32Array(particleCount)
-        const isDeeps = new Float32Array(particleCount)
+        const isDeepFlags = new Float32Array(particleCount)
 
-        const dataView = new DataView(arrayBuffer)
+        const view = new DataView(arrayBuffer)
         for (let i = 0; i < particleCount; i++) {
-          const byteOffset = i * stride
-          positions[i * 3 + 0] = dataView.getFloat32(byteOffset + 0, true)
-          positions[i * 3 + 1] = dataView.getFloat32(byteOffset + 4, true)
-          positions[i * 3 + 2] = dataView.getFloat32(byteOffset + 8, true)
+          const offset = i * stride
+          positions[i * 3 + 0] = view.getFloat32(offset + 0, true)
+          positions[i * 3 + 1] = view.getFloat32(offset + 4, true)
+          positions[i * 3 + 2] = view.getFloat32(offset + 8, true)
 
-          normals[i * 3 + 0] = dataView.getFloat32(byteOffset + 12, true)
-          normals[i * 3 + 1] = dataView.getFloat32(byteOffset + 16, true)
-          normals[i * 3 + 2] = dataView.getFloat32(byteOffset + 20, true)
+          normals[i * 3 + 0] = view.getFloat32(offset + 12, true)
+          normals[i * 3 + 1] = view.getFloat32(offset + 16, true)
+          normals[i * 3 + 2] = view.getFloat32(offset + 20, true)
 
-          regionIndices[i] = dataView.getUint8(byteOffset + 24)
-          isDeeps[i] = dataView.getUint8(byteOffset + 25)
+          regionIndices[i] = view.getUint8(offset + 24)
+          isDeepFlags[i] = view.getUint8(offset + 25)
         }
 
         const geometry = new THREE.BufferGeometry()
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
         geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
         geometry.setAttribute('a_regionIndex', new THREE.BufferAttribute(regionIndices, 1))
-        geometry.setAttribute('a_isDeep', new THREE.BufferAttribute(isDeeps, 1))
+        geometry.setAttribute('a_isDeep', new THREE.BufferAttribute(isDeepFlags, 1))
 
         pointsMesh = new THREE.Points(geometry, material)
         scene.add(pointsMesh)
-
         setIsLoading(false)
       })
       .catch((err) => {
-        console.warn('Failed loading binary particle buffer, using procedural lattice fallback:', err)
+        console.warn('Failed loading binary particle buffer:', err)
         setLoadError('Failed to load precomputed particle buffer.')
         setIsLoading(false)
       })
 
-    // 6. Raycasting Pointer Handlers (Distinguishing Drag vs Click)
+    // 6. Interaction & Pointer Handlers (Eliminates Flickering & Unintended Resets)
     const raycaster = new THREE.Raycaster()
     const mouse = new THREE.Vector2()
     const pointerStart = { x: 0, y: 0 }
+    let isPointerDown = false
+    let currentHoveredId: string | null = null
 
     const onPointerDown = (e: MouseEvent) => {
+      isPointerDown = true
       pointerStart.x = e.clientX
       pointerStart.y = e.clientY
+
+      // Hide hover effects while dragging camera
+      if (currentHoveredId !== null) {
+        currentHoveredId = null
+        material.uniforms.u_hoveredRegion.value = 0
+        onHoverRegionRef.current?.(null)
+      }
+      if (tooltipRef.current) {
+        tooltipRef.current.style.opacity = '0'
+      }
     }
 
     const onPointerMove = (e: MouseEvent) => {
+      // While dragging or rotating the camera, skip raycasting completely
+      if (isPointerDown) {
+        return
+      }
+
       const rect = canvas.getBoundingClientRect()
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
@@ -335,34 +370,51 @@ export default function ParticleBrain({
       raycaster.setFromCamera(mouse, camera)
       const hits = raycaster.intersectObjects(hitGroup.children)
 
+      let hitRegionId: string | null = null
       if (hits.length > 0) {
         const hitMesh = hits[0].object as THREE.Mesh
-        const regionId = hitMeshMap.get(hitMesh) || null
-        if (regionId) {
-          onHoverRegion(regionId)
-          canvas.style.cursor = 'pointer'
+        hitRegionId = hitMeshMap.get(hitMesh) || null
+      }
 
-          const regionObj = brainRegions.find((r) => r.id === regionId)
+      // Update hover state only when it changes
+      if (hitRegionId !== currentHoveredId) {
+        currentHoveredId = hitRegionId
+        material.uniforms.u_hoveredRegion.value = hitRegionId
+          ? REGION_ID_TO_INDEX[hitRegionId] || 0
+          : 0
+        onHoverRegionRef.current?.(hitRegionId)
+        canvas.style.cursor = hitRegionId ? 'pointer' : 'grab'
+
+        if (hitRegionId && tooltipRef.current && tooltipTitleRef.current && tooltipDescRef.current) {
+          const regionObj = brainRegions.find((r) => r.id === hitRegionId)
           if (regionObj) {
-            setActiveTooltip({
-              name: regionObj.name,
-              desc: regionObj.shortDescription.slice(0, 75) + '...',
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            })
+            tooltipTitleRef.current.textContent = regionObj.name
+            tooltipDescRef.current.textContent = regionObj.shortDescription.slice(0, 75) + '...'
+            tooltipRef.current.style.opacity = '1'
+            const tx = Math.min(e.clientX - rect.left + 14, rect.width - 210)
+            const ty = Math.min(e.clientY - rect.top + 14, rect.height - 80)
+            tooltipRef.current.style.transform = `translate3d(${tx}px, ${ty}px, 0)`
           }
+        } else if (tooltipRef.current) {
+          tooltipRef.current.style.opacity = '0'
         }
-      } else {
-        onHoverRegion(null)
-        canvas.style.cursor = 'grab'
-        setActiveTooltip(null)
+      } else if (hitRegionId && tooltipRef.current) {
+        const tx = Math.min(e.clientX - rect.left + 14, rect.width - 210)
+        const ty = Math.min(e.clientY - rect.top + 14, rect.height - 80)
+        tooltipRef.current.style.transform = `translate3d(${tx}px, ${ty}px, 0)`
       }
     }
 
     const onPointerUp = (e: MouseEvent) => {
+      isPointerDown = false
       const dist = Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y)
-      if (dist > 6) return // Dragged / rotated camera, do not trigger selection click!
 
+      // If user rotated or dragged camera, do not trigger selection click!
+      if (dist > 6) {
+        return
+      }
+
+      // Legitimate selection click
       const rect = canvas.getBoundingClientRect()
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
@@ -374,14 +426,22 @@ export default function ParticleBrain({
         const hitMesh = hits[0].object as THREE.Mesh
         const regionId = hitMeshMap.get(hitMesh) || null
         if (regionId) {
-          onSelectRegion(regionId)
+          onSelectRegionRef.current?.(regionId)
         }
       }
     }
 
     const onPointerLeave = () => {
-      onHoverRegion(null)
-      setActiveTooltip(null)
+      isPointerDown = false
+      if (currentHoveredId !== null) {
+        currentHoveredId = null
+        material.uniforms.u_hoveredRegion.value = 0
+        onHoverRegionRef.current?.(null)
+      }
+      if (tooltipRef.current) {
+        tooltipRef.current.style.opacity = '0'
+      }
+      canvas.style.cursor = 'grab'
     }
 
     canvas.addEventListener('mousedown', onPointerDown)
@@ -402,7 +462,7 @@ export default function ParticleBrain({
       if (hits.length > 0) {
         const hitMesh = hits[0].object as THREE.Mesh
         const regionId = hitMeshMap.get(hitMesh) || null
-        if (regionId) onSelectRegion(regionId)
+        if (regionId) onSelectRegionRef.current(regionId)
       }
     }
     canvas.addEventListener('touchend', onTouchEnd)
@@ -411,7 +471,7 @@ export default function ParticleBrain({
     const handleResize = () => {
       if (!container || !camera || !renderer) return
       const w = container.clientWidth
-      const h = container.clientHeight || 460
+      const h = container.clientHeight || 440
       camera.aspect = w / h
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
@@ -426,9 +486,14 @@ export default function ParticleBrain({
     const animate = (time: number) => {
       animId = requestAnimationFrame(animate)
 
-      if (!reducedMotion) {
+      if (!reducedMotionRef.current) {
         material.uniforms.u_time.value = (time - startTime) * 0.001
       }
+
+      // Smooth interpolation for deep structure cutaway transition (no jarring pops)
+      const currentCutaway = material.uniforms.u_deepCutaway.value
+      const targetCutaway = targetCutawayRef.current
+      material.uniforms.u_deepCutaway.value += (targetCutaway - currentCutaway) * 0.08
 
       if (!isResettingCameraRef.current) {
         controls.update()
@@ -439,7 +504,7 @@ export default function ParticleBrain({
 
     animId = requestAnimationFrame(animate)
 
-    // Cleanup on unmount
+    // Cleanup ONLY when component unmounts
     return () => {
       cancelAnimationFrame(animId)
       window.removeEventListener('resize', handleResize)
@@ -455,7 +520,7 @@ export default function ParticleBrain({
       }
       material.dispose()
     }
-  }, [reducedMotion, onSelectRegion, onHoverRegion, selectedRegionId])
+  }, []) // Empty dependency array: Three.js canvas remains stable and never resets during interaction
 
   return (
     <div className="relative w-full rounded-2xl border border-white/10 bg-[#0A100B] p-5 sm:p-7 flex flex-col items-center justify-between shadow-2xl overflow-hidden">
@@ -476,7 +541,7 @@ export default function ParticleBrain({
       {/* Main 3D WebGL Canvas Container */}
       <div
         ref={containerRef}
-        className="relative w-full h-[400px] sm:h-[460px] flex items-center justify-center cursor-grab active:cursor-grabbing"
+        className="relative w-full h-[400px] sm:h-[450px] flex items-center justify-center cursor-grab active:cursor-grabbing"
       >
         <canvas ref={canvasRef} className="block w-full h-full outline-none" />
 
@@ -505,29 +570,20 @@ export default function ParticleBrain({
           </div>
         )}
 
-        {/* Floating Tooltip during Hover */}
-        {activeTooltip && (
-          <div
-            className="pointer-events-none absolute z-30 transform -translate-x-1/2 -translate-y-full mb-3 rounded-lg border border-[#B9FF43]/40 bg-[#050705]/95 backdrop-blur-md px-3 py-2 shadow-xl max-w-[220px]"
-            style={{
-              left: `${activeTooltip.x}px`,
-              top: `${activeTooltip.y}px`,
-            }}
-          >
-            <span className="font-mono text-[11px] font-bold text-[#B9FF43] block">
-              {activeTooltip.name}
-            </span>
-            <span className="font-sans text-[10px] text-[#A0AAA0] leading-tight block mt-0.5">
-              {activeTooltip.desc}
-            </span>
-          </div>
-        )}
+        {/* Floating Tooltip during Hover: updated via direct DOM ref for 0 re-render performance */}
+        <div
+          ref={tooltipRef}
+          style={{ opacity: 0, transform: 'translate3d(0, 0, 0)' }}
+          className="pointer-events-none absolute left-0 top-0 z-30 transition-opacity duration-150 rounded-lg border border-[#B9FF43]/40 bg-[#050705]/95 backdrop-blur-md px-3 py-2 shadow-xl max-w-[210px]"
+        >
+          <span ref={tooltipTitleRef} className="font-mono text-[11px] font-bold text-[#B9FF43] block" />
+          <span ref={tooltipDescRef} className="font-sans text-[10px] text-[#A0AAA0] leading-tight block mt-0.5" />
+        </div>
       </div>
 
       {/* Interactive Controls & 10 Region Legend */}
       <BrainLegend
         selectedRegionId={selectedRegionId}
-        hoveredRegionId={hoveredRegionId}
         onSelectRegion={onSelectRegion}
         onResetCamera={handleResetCamera}
       />

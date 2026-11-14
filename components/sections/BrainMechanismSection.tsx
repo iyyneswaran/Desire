@@ -17,7 +17,6 @@ const STAGE_TO_PRIMARY_REGION: Record<number, string> = {
 
 export default function BrainMechanismSection() {
   const [selectedRegionId, setSelectedRegionId] = useState<string>('prefrontal')
-  const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null)
 
   // Current active region data
   const currentRegion =
@@ -102,9 +101,7 @@ export default function BrainMechanismSection() {
           <div className="lg:col-span-5 sticky top-24 space-y-4">
             <ParticleBrain
               selectedRegionId={selectedRegionId}
-              hoveredRegionId={hoveredRegionId}
               onSelectRegion={(id) => setSelectedRegionId(id || 'prefrontal')}
-              onHoverRegion={setHoveredRegionId}
             />
           </div>
 
