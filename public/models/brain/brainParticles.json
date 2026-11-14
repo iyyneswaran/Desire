@@ -1,0 +1,38 @@
+{
+  "particleCount": 48284,
+  "strideBytes": 26,
+  "format": {
+    "position": [
+      0,
+      12,
+      "float32"
+    ],
+    "normal": [
+      12,
+      24,
+      "float32"
+    ],
+    "regionIndex": [
+      24,
+      25,
+      "uint8"
+    ],
+    "isDeep": [
+      25,
+      26,
+      "uint8"
+    ]
+  },
+  "boundingBox": {
+    "min": [
+      -1.41,
+      -1.8,
+      -1.66
+    ],
+    "max": [
+      1.41,
+      1.8,
+      1.66
+    ]
+  }
+}
