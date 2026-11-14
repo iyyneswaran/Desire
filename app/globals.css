@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg-main: #050705;
+  --color-bg-secondary: #0A100B;
+  --color-bg-card: #101810;
+  --color-bg-elevated: #172019;
+  --color-text-primary: #F2F5EF;
+  --color-text-secondary: #A0AAA0;
+  --color-text-muted: #687368;
+  --color-accent-lime: #B9FF43;
+  --color-accent-green: #78D957;
+  --color-deep-green: #244B2D;
+  --color-border-subtle: rgba(255, 255, 255, 0.10);
+  --color-accent-glow: rgba(185, 255, 67, 0.18);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  background-color: #050705;
+  color: #F2F5EF;
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #050705;
+  color: #F2F5EF;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+::selection {
+  background: #B9FF43;
+  color: #050705;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #050705;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #172019;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #244B2D;
+}
+
+/* Glow effects & utility classes */
+.lime-glow-sm {
+  box-shadow: 0 0 15px -3px rgba(185, 255, 67, 0.18);
+}
+
+.lime-glow-md {
+  box-shadow: 0 0 30px -5px rgba(185, 255, 67, 0.22);
+}
+
+.lime-glow-lg {
+  box-shadow: 0 0 60px -10px rgba(185, 255, 67, 0.3);
+}
+
+.text-gradient-lime {
+  background: linear-gradient(135deg, #F2F5EF 30%, #B9FF43 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-noise {
+  background-image: radial-gradient(rgba(185, 255, 67, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
 }
